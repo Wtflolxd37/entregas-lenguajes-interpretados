@@ -19,3 +19,7 @@ Hola yo soy Alex y yo escogi esta carrera porque a mi me gustan los videojuegos 
 ### Fotografia
 
 ![alt text](Assets/Snapchat-74448992.jpg)
+
+
+## Entregables
+- [Practica1](mds/Apuntes.md)
