@@ -23,3 +23,4 @@ Hola yo soy Alex y yo escogi esta carrera porque a mi me gustan los videojuegos 
 
 ## Entregables
 - [Practica1](mds/Apuntes.md)
+- [Practica2](mds/Ramas-Fusiones.md)
