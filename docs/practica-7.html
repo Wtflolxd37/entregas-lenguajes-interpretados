@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>oik navig — Cerdito y Nave</title>
+  <style>
+    :root{--bg:#87CEEB;--ground:#7c4a2a;--pipe:#2e8b57}
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Arial}
+    #gameWrap{display:flex;flex-direction:column;align-items:center;padding:12px}
+    canvas{background:linear-gradient(#87CEEB 0%, #b6e0ff 60%);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+    .hud{width:820px;max-width:95%;display:flex;justify-content:space-between;align-items:center;margin:8px 0}
+    .panel{background:rgba(255,255,255,0.85);padding:8px 12px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+    button{padding:8px 12px;border-radius:8px;border:0;background:#ffb74d;color:#000;font-weight:600;cursor:pointer}
+    button:active{transform:translateY(1px)}
+    .small{font-size:13px;color:#333}
+    .centered{display:flex;gap:8px;align-items:center}
+    #records{margin-top:12px;max-width:820px;width:95%;background:#fff;padding:10px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+    #records h3{margin:0 0 6px 0;font-size:16px}
+    #records ol{margin:0;padding-left:20px;font-size:14px;color:#444}
+  </style>
+</head>
+<body>
+  <div id="gameWrap">
+    <h2>oik navig — Cerdito en navecita persiguiendo un maíz</h2>
+    <div class="hud">
+      <div class="panel centered">
+        <div class="small">Puntaje: <strong id="score">0</strong></div>
+        <div style="width:12px"></div>
+        <div class="small">Dificultad: <strong id="level">1</strong></div>
+      </div>
+      <div class="panel centered">
+        <button id="startBtn">Iniciar</button>
+        <button id="muteBtn">🔊</button>
+      </div>
+    </div>
+
+    <canvas id="game" width="820" height="580"></canvas>
+
+    <div style="max-width:820px;max-width:95%;margin-top:8px;text-align:left;color:#444;font-size:14px">
+      <strong>Controles:</strong> Espacio o clic/tap para saltar. El objetivo: llegar a 100 puntos para que el cerdito consiga el maíz; al lograrlo se reproduce el logro y el juego se reinicia con muros (pipes) más difíciles.
+    </div>
+
+    <div id="records">
+      <h3>🏆 Records</h3>
+      <ol id="recordList"></ol>
+    </div>
+  </div>
+
+  <script>
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  const scoreEl = document.getElementById('score');
+  const levelEl = document.getElementById('level');
+  const startBtn = document.getElementById('startBtn');
+  const muteBtn = document.getElementById('muteBtn');
+  const recordList = document.getElementById('recordList');
+
+  let running = false;
+  let score = 0;
+  let level = 1;
+  let pipes = [];
+  let frames = 0;
+  let gravity = 0.5;
+  let pipeGap = 160;
+  let pipeWidth = 80;
+  let pipeInterval = 100;
+  let pipeSpeed = 2.2;
+  const TARGET_SCORE = 100;
+  let muted = false;
+
+  let records = JSON.parse(localStorage.getItem('oik_records')||'[]');
+  renderRecords();
+
+  const pig = {
+    x: 140,
+    y: H/2,
+    vy: 0,
+    radius: 20,
+    rotation: 0,
+    alive: true
+  };
+
+  const corn = {
+    x: W - 160,
+    y: H/3,
+    size: 20,
+    visible: true
+  };
+
+  function beep(freq, time=0.08){
+    if(muted) return;
+    try{
+      const osc = new (window.AudioContext || window.webkitAudioContext)();
+      const o = osc.createOscillator();
+      const g = osc.createGain();
+      o.type = 'sine'; o.frequency.value = freq;
+      o.connect(g); g.connect(osc.destination);
+      g.gain.value = 0.05;
+      o.start();
+      setTimeout(()=>{ o.stop(); osc.close(); }, time*1000);
+    }catch(e){}
+  }
+
+  function resetGame(){
+    pipes = [];
+    frames = 0;
+    pig.x = 140; pig.y = H/2; pig.vy = 0; pig.alive = true; pig.rotation = 0;
+    score = 0; scoreEl.textContent = score;
+    pipeGap = Math.max(90, 160 - (level-1)*12);
+    pipeSpeed = 2.2 + (level-1)*0.5;
+    pipeInterval = Math.max(60, 100 - (level-1)*6);
+    corn.visible = true;
+  }
+
+  function spawnPipe(){
+    const margin = 40;
+    const topHeight = margin + Math.random()*(H - pipeGap - margin*2);
+    pipes.push({x: W+20, top: topHeight, passed:false});
+  }
+
+  function flap(){
+    if(!running) return;
+    pig.vy = -8.5;
+    pig.rotation = -0.6;
+    beep(600, 0.06);
+  }
+
+  window.addEventListener('keydown', e => { if(e.code==='Space'){ e.preventDefault(); if(!running){ start(); } flap(); } });
+  canvas.addEventListener('mousedown', e => { if(!running){ start(); } flap(); });
+  canvas.addEventListener('touchstart', e => { e.preventDefault(); if(!running) start(); flap(); }, {passive:false});
+
+  startBtn.addEventListener('click', ()=>{ if(!running) start(); else pause(); });
+  muteBtn.addEventListener('click', ()=>{ muted=!muted; muteBtn.textContent = muted ? '🔇' : '🔊'; });
+
+  function start(){ running = true; startBtn.textContent = 'Pausar'; resetGame(); loop(); }
+  function pause(){ running = false; startBtn.textContent = 'Continuar'; }
+
+  function update(){
+    frames++;
+    if(frames % pipeInterval === 0) spawnPipe();
+
+    for(let i = pipes.length-1; i>=0; i--){
+      const p = pipes[i];
+      p.x -= pipeSpeed;
+      if(!p.passed && p.x + pipeWidth < pig.x){ p.passed = true; score++; scoreEl.textContent = score; beep(220,0.04); }
+      if(p.x < -pipeWidth - 20) pipes.splice(i,1);
+    }
+
+    pig.vy += gravity;
+    pig.y += pig.vy;
+    pig.rotation = Math.max(-0.9, Math.min(1.2, pig.vy/10));
+
+    if(pig.y + pig.radius > H - 30){
+      pig.y = H-30-pig.radius; pig.alive = false; running=false; startBtn.textContent='Reiniciar'; beep(120,0.25); saveRecord(score);
+    }
+    if(pig.y - pig.radius < 10){ pig.y = 10+pig.radius; pig.vy = 0; }
+
+    for(const p of pipes){
+      const px = p.x, py = p.top;
+      if(circleRectCollision(pig.x, pig.y, pig.radius, px, 0, pipeWidth, py) || circleRectCollision(pig.x, pig.y, pig.radius, px, py+pipeGap, pipeWidth, H-(py+pipeGap))){
+        pig.alive = false; running=false; startBtn.textContent='Reiniciar'; beep(100,0.3); saveRecord(score);
+      }
+    }
+
+    if(score >= TARGET_SCORE && corn.visible){
+      corn.visible = false;
+      playEatSequence();
+    }
+  }
+
+  function playEatSequence(){
+    const origX = pig.x, origY = pig.y;
+    const targetX = corn.x - 10, targetY = corn.y;
+    const duration = 800;
+    const start = performance.now();
+    beep(900,0.15);
+
+    function anim(t){
+      const p = Math.min(1, (t-start)/duration);
+      const e = 1 - Math.pow(1-p,3);
+      pig.x = origX + (targetX - origX)*e;
+      pig.y = origY + (targetY - origY)*e;
+      if(p<1) requestAnimationFrame(anim);
+      else{
+        beep(1200,0.22);
+        showMessage('¡El cerdito consiguió el maíz!');
+        saveRecord(score);
+        setTimeout(()=>{ pig.x = origX; level++; levelEl.textContent = level; resetGame(); start(); }, 900);
+      }
+    }
+    requestAnimationFrame(anim);
+  }
+
+  function showMessage(txt){
+    const old = document.getElementById('msgBox'); if(old) old.remove();
+    const box = document.createElement('div'); box.id='msgBox';
+    box.style.position='absolute'; box.style.left='50%'; box.style.transform='translateX(-50%)';
+    box.style.top='120px'; box.style.padding='12px 18px'; box.style.background='rgba(255,255,255,0.95)';
+    box.style.borderRadius='10px'; box.style.boxShadow='0 6px 20px rgba(0,0,0,0.18)';
+    box.style.fontWeight='700'; box.style.zIndex=999; box.textContent = txt;
+    document.body.appendChild(box);
+    setTimeout(()=>box.remove(),1600);
+  }
+
+  function circleRectCollision(cx, cy, r, rx, ry, rw, rh){
+    const nearestX = Math.max(rx, Math.min(cx, rx+rw));
+    const nearestY = Math.max(ry, Math.min(cy, ry+rh));
+    const dx = cx - nearestX, dy = cy - nearestY;
+    return (dx*dx + dy*dy) < (r*r);
+  }
+
+  function saveRecord(s){
+    if(s<=0) return;
+    records.push({score:s, date:new Date().toLocaleString()});
+    records.sort((a,b)=>b.score-a.score);
+    if(records.length>10) records.length=10;
+    localStorage.setItem('oik_records', JSON.stringify(records));
+    renderRecords();
+  }
+
+  function renderRecords(){
+    recordList.innerHTML = '';
+    records.forEach(r=>{
+      const li = document.createElement('li');
+      li.textContent = r.score + ' puntos — ' + r.date;
+      recordList.appendChild(li);
+    });
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    drawGround();
+    for(const p of pipes){
+      drawPipe(p.x, 0, pipeWidth, p.top);
+      drawPipe(p.x, p.top+pipeGap, pipeWidth, H - (p.top+pipeGap) - 30);
+    }
+    if(corn.visible) drawCorn(corn.x, corn.y, corn.size);
+    drawPigShip(pig.x, pig.y, pig.radius, pig.rotation);
+  }
+
+  function drawGround(){
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--ground') || '#7c4a2a';
+    ctx.fillRect(0,H-30,W,30);
+  }
+
+  function drawPipe(x,y,w,h){
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--pipe') || '#2e8b57';
+    ctx.fillRect(x,y,w,h);
+    ctx.strokeStyle = 'rgba(0,0,0,0.08)';
+    ctx.strokeRect(x,y,w,h);
+  }
+
+  function drawPigShip(x,y,r,rot){
+    ctx.save(); ctx.translate(x,y); ctx.rotate(rot);
+    ctx.fillStyle = '#90a4ae';
+    ctx.beginPath(); ctx.ellipse(0,0,r*1.8,r*1.1,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#78909c';
+    ctx.beginPath(); ctx.ellipse(-r*1.2,0,r*0.6,r*0.3,0,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(r*1.2,0,r*0.6,r*0.3,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = 'rgba(173,216,230,0.65)';
+    ctx.beginPath(); ctx.ellipse(0,-r*0.4,r*1.1,r*0.8,0,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle = 'rgba(200,200,255,0.9)'; ctx.stroke();
+    ctx.fillStyle = '#f8b6c0'; ctx.beginPath(); ctx.arc(0,-r*0.4,r*0.55,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(-3,-r*0.4,2,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#ffbcbc'; ctx.beginPath(); ctx.ellipse(3,-r*0.4,3,2,0,0,Math.PI*2); ctx.fill();
+    const flameLen = 12 + Math.sin(frames/4)*6;
+    ctx.fillStyle = '#ff5722'; ctx.beginPath(); ctx.moveTo(-r*0.6,r); ctx.lineTo(0,r+flameLen); ctx.lineTo(r*0.6,r); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawCorn(x,y,s){
+    ctx.save(); ctx.translate(x,y);
+    ctx.fillStyle = '#7cb342';
+    ctx.beginPath(); ctx.ellipse(-s*0.5,s*0.5,s*0.8,s*1.6,Math.PI/6,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(s*0.5,s*0.5,s*0.8,s*1.6,-Math.PI/6,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#ffeb3b';
+    ctx.beginPath(); ctx.ellipse(0,0,s*0.9,s*1.6,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fdd835';
+    for(let i=-2;i<=2;i++){
+      for(let j=-3;j<=3;j++){
+        ctx.beginPath(); ctx.ellipse(i*5,j*5,2.5,3.5,0,0,Math.PI*2); ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  function loop(){
+    if(running) update();
+    draw();
+    if(running) requestAnimationFrame(loop);
+  }
+
+  (function idleRender(){
+    draw();
+    corn.y = H/3 + Math.sin(Date.now()/400)*6;
+    requestAnimationFrame(idleRender);
+  })();
+
+  window._oik = {resetGame, spawnPipe};
+  </script>
+</body>
+</html>

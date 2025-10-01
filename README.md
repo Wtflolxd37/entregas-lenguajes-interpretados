@@ -26,4 +26,5 @@ Hola yo soy Alex y yo escogi esta carrera porque a mi me gustan los videojuegos 
 - [Practica2](mds/Ramas-Fusiones.md)
 - [Practica3](mds/Etiquetas.md)
 - [Practica4](mds/Primer-parcial.md)
-- [Practica6](/docs/Practica6.html)
+- [Practica6](/docs/Practica6.md)
+- [Practica7](docs/practica-7.html)

@@ -20,3 +20,6 @@ Mi juego se trata de un cerdito que anda pasando muros en la cual su objetivo es
 
 ### Diagrama de flujo
  ![Diagrama](/Assets/Untitled.png)
+
+ ### Chat con la ia
+ https://chatgpt.com/share/68dc891c-f464-8002-bd75-f8d8101de1cb
